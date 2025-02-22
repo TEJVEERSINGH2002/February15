@@ -11,11 +11,13 @@ using System.IO;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
+using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using System.Threading.Tasks;
 using System.Web;
 using System.Web.Helpers;
+using System.Web.Http.Results;
 using System.Web.Mvc;
 using System.Web.UI.WebControls;
 using System.Xml;
@@ -40,7 +42,7 @@ namespace Yesbank.Controllers
         string pageNo = "";
         string startDate = "";
         string endDate = "";
-        private readonly string connectionString = "Data Source=localhost;Initial Catalog=TSSWU12345;Persist Security Info=True;User ID=sa;Password=sa;TrustServerCertificate=True;";
+        private readonly string connectionString = "Data Source=localhost;Initial Catalog=A1FNCE2425;Persist Security Info=True;User ID=sa;Password=sa;TrustServerCertificate=True;";
         [HttpPost]
         public async Task<ContentResult> YesbankPost(string customerId, string username, string password)
         {
@@ -278,7 +280,7 @@ namespace Yesbank.Controllers
         }
 
         [HttpPost]
-        public async Task<ContentResult> Yesbankpayment(string username, string password)
+        public async Task<ContentResult> Yesbankpayment(string BILL_PKEY)
         {
             Request.InputStream.Position = 0;
             string requestBody = "ram";
@@ -287,10 +289,9 @@ namespace Yesbank.Controllers
                 requestBody = await reader.ReadToEndAsync();
             }
             var json = JsonConvert.DeserializeObject(requestBody);
-            string certificatePath = @"c:\ssl\pfx1234.pfx"; // Change to your .pfx file path
-            string certificatePassword = "1234"; // Password for the .pfx file
+            string certificatePath = @"c:\ssl\pfx1234.pfx";
+            string certificatePassword = "1234";
             var certificate = new X509Certificate2(certificatePath, certificatePassword);
-
             var handler = new HttpClientHandler();
             handler.ClientCertificates.Add(certificate);
             handler.ServerCertificateCustomValidationCallback = HttpClientHandler.DangerousAcceptAnyServerCertificateValidator;
@@ -299,97 +300,107 @@ namespace Yesbank.Controllers
             request.Headers.Add("X-IBM-Client-Id", "6422a38fb2235c3cfd0d49c5076207ad");
             request.Headers.Add("X-IBM-Client-Secret", "7ed640cb44d9c362483027fa093fdcd0");
             request.Headers.Add("Authorization", "Basic dGVzdHVzZXI6VGlFc2JudHBAMTNOMjI=");
-            request.Headers.Add("Cookie", "ak_bmsc=77D1C3E9EB601A1BE53058362384E9C2~000000000000000000000000000000~YAAQ5wFAF3fyGtSSAQAAz1az9Rl2c4am0n9ABurZ3FO4PUQZHGS7G04fhoAVZbNA3zdSF9wAmL19yzFWXxjgPqH24L532Prh5+oQiP9PUZDMo+cc0qqQ8jaGEBJgTZwUWDPxkwOFVdLUI7MeuhvWs1jA8k8MzvirnUxYsOvrguce7pXVF829jjUh25VDgpnEGXy10Fe0qaFEC5DJ7XTF2badEt6qBCW+502bdLm/XxWF3LhW55P5HGF0ePv6jF7M59iGjYeRYnLRKuVabrrDQEQFvo/Qa/IkqF4uGvREZmxB81giDlBQL6oYx3vTZQdotYaDeoHtDhA8eUGyFpdFQgaAVZiJF5blATw=; bm_sv=C58E68AAF778031C0B3B060EE0B1D3B3~YAAQ5wFAFy88HNSSAQAAKxHC9RlcGEEq0DWl1fM6YGmG5aK2NY9vH2A8Qb1AHvy5NWcR6ZnGAa9NKLTO1Pe0+grXbBPCo1gq6794gKP6aXlHFPXX2IAOaJVrPgd1vRejo5hzxC/fs3T7Hr4wlVuaCqwo176u2lg4JzT0JTz0CobpQKSazUDNqv5AYY3QiMChCQBjjYiUez5ufW3iHNW/iQTJSdnW/So7bjQb4n3HgRepBkGyjVaa2291BG4SwHKx~1");
-            var data = JsonConvert.DeserializeObject<Dictionary<string, ReqBody>>(requestBody);
-            var reqBody = data["ReqBody"];
-            var jsonBody = new
+            request.Headers.Add("Cookie", "ak_bmsc=...");
+            List<Data> dataList = new List<Data>();
+            string sqlT = "SELECT T.PARTY_CODE, M.AC_CODE, T.CHEQUE_AMT, M.AMT, T.CD_FLAG, F.BANKAC_NO " +
+                          "FROM FVTTOP T, FVTMID M, FACMAS F " +
+                          "WHERE F.AC_CODE = M.AC_CODE AND T.VT_PKEY = M.VT_PKEY AND T.VT_PKEY = ('" + BILL_PKEY + "')";
+            DataTable dtpaymentT = GetData(sqlT);
+            if (dtpaymentT.Rows.Count > 0)
             {
-                Data = new
+                DataRow dr = dtpaymentT.Rows[0];
+                var data = new Data
                 {
-                    FileIdentifier = reqBody.FileIdentifier,
-                    NumberOfTransactions = reqBody.NumberOfTransactions,
-                    ConsentId = reqBody.ConsentId,
-                    ControSum = reqBody.ControSum,
-                    SecondaryIdentification = reqBody.SecondaryIdentification,
-                    DomesticPayments = new[]
+                    FileIdentifier = dr["AC_CODE"]?.ToString(),
+                    NumberOfTransactions = dr["CHEQUE_AMT"]?.ToString(),
+                    ConsentId = dr["PARTY_CODE"]?.ToString(),
+                    ControSum = dr["CHEQUE_AMT"]?.ToString(),
+                    SecondaryIdentification = dr["BANKAC_NO"]?.ToString(),
+                    DomesticPayments = new List<DomesticPayment>()
+                };
+
+                string sqlM = "SELECT T.PARTY_CODE, M.AC_CODE, T.CHEQUE_AMT, M.AMT, T.CD_FLAG, F.BANKAC_NO, F.ADDRESS, F.GRP_NAME, F.AC_NAME, F.MOBILE_NO " +
+                              "FROM FVTTOP T, FVTMID M, FACMAS F " +
+                              "WHERE F.AC_CODE = M.AC_CODE AND T.VT_PKEY = M.VT_PKEY AND T.VT_PKEY = ('" + BILL_PKEY + "')";
+                DataTable dtpaymentM = GetData(sqlM);
+                foreach (DataRow drDomestic in dtpaymentM.Rows)
+                {
+                    var domesticPayment = new DomesticPayment
                     {
-                    new
-                    {
-                        ConsentId = reqBody.DomesticPaymentsConsentId,
-                        Initiation = new
+                        ConsentId = drDomestic["PARTY_CODE"]?.ToString(),
+                        Initiation = new Initiation
                         {
-                            InstructionIdentification = reqBody.InstructionIdentification,
-                            ClearingSystemIdentification = reqBody.ClearingSystemIdentification,
-                            InstructedAmount = new
+                            InstructionIdentification = drDomestic["PARTY_CODE"]?.ToString(),
+                            ClearingSystemIdentification = drDomestic["BANKAC_NO"]?.ToString(),
+                            InstructedAmount = new InstructedAmount
                             {
-                                Amount = reqBody.Amount,
-                                Currency = reqBody.Currency
+                                Amount = drDomestic["CHEQUE_AMT"]?.ToString(),
+                                Currency = "INR"
                             },
-                            DebtorAccount = new
+                            DebtorAccount = new DebtorAccount
                             {
-                                Identification = reqBody.DebtorAccountIdentification,
-                                Name = reqBody.DebtorAccountName,
-                                SecondaryIdentification = reqBody.DebtorSecondaryIdentification,
-                                Unstructured = new
+                                Identification = drDomestic["PARTY_CODE"]?.ToString(),
+                                Name = drDomestic["AC_NAME"]?.ToString(),
+                                SecondaryIdentification = drDomestic["BANKAC_NO"]?.ToString(),
+                                Unstructured = new Unstructured1
                                 {
-                                    ContactInformation = new
+                                    ContactInformation = new ContactInformation1
                                     {
-                                        MobileNumber = reqBody.MobileNumber
+                                        MobileNumber = drDomestic["MOBILE_NO"]?.ToString()
                                     },
-                                    Identities = new { }
+                                    Identities = new Identities()
                                 }
                             },
-                            CreditorAccount = new
+                            CreditorAccount = new CreditorAccount
                             {
-                                SchemeName = reqBody.CreditorSchemeName,
-                                Identification = reqBody.CreditorIdentification,
-                                Name = reqBody.CreditorName,
-                                Unstructured = new
+                                SchemeName = drDomestic["PARTY_CODE"]?.ToString(),
+                                Identification = drDomestic["BANKAC_NO"]?.ToString(),
+                                Name = drDomestic["AC_NAME"]?.ToString(),
+                                Unstructured = new Unstructured3
                                 {
-                                    ContactInformation = new { },
-                                    Identities = new { }
+                                    ContactInformation = new ContactInformation2(),
+                                    Identities = new Identities()
                                 }
                             },
-                            RemittanceInformation = new
+                            RemittanceInformation = new RemittanceInformation
                             {
-                                Unstructured = new
+                                Unstructured = new Unstructured2
                                 {
-                                    CreditorReferenceInformation = reqBody.CreditorReferenceInformation,
-                                    RemitterAccount = reqBody.RemitterAccount
+                                    CreditorReferenceInformation = drDomestic["PARTY_CODE"]?.ToString(),
+                                    RemitterAccount = drDomestic["BANKAC_NO"]?.ToString()
                                 }
                             }
                         },
-                        Risk = new
+                        Risk = new Risk
                         {
-                            PaymentContextCode = "BANKTRANSFER",
-                            DeliveryAddress = new
+                            PaymentContextCode = drDomestic["GRP_NAME"]?.ToString(),
+                            DeliveryAddress = new DeliveryAddress
                             {
-                                AddressLine = new[]
-                                {
-                                    reqBody.AddressLine
-                                }
+                                AddressLine = new List<string> { drDomestic["ADDRESS"]?.ToString() }
                             }
                         }
-                    }
+                    };
+                    data.DomesticPayments.Add(domesticPayment);
                 }
-                }
-            };
-
-            var jsonString = JsonConvert.SerializeObject(jsonBody);
-            var content = new StringContent(jsonString, Encoding.UTF8, "application/json");
-            request.Content = content;
-            var response = await client.SendAsync(request);
-            response.EnsureSuccessStatusCode();
-            var result = await response.Content.ReadAsStringAsync();
-            var jsonResponse = JObject.Parse(result);
-            var orderDetail = ReadDataFromJson2(result);
-            DataTable data1 = orderDetail.Tables["data"];
-            DataTable links = orderDetail.Tables["links"];
-            DataTable meta = orderDetail.Tables["meta"];
-
-            SaveReturnsDetails(data1, meta, links);
-            return Content(result);
+                var jsonObject = new { Data = data };
+                string jsonString = JsonConvert.SerializeObject(jsonObject, Newtonsoft.Json.Formatting.Indented);
+                var content = new StringContent(jsonString, Encoding.UTF8, "application/json");
+                request.Content = content;
+                var response = await client.SendAsync(request);
+                response.EnsureSuccessStatusCode();
+                var result = await response.Content.ReadAsStringAsync();
+                var jsonResponse = JObject.Parse(result);
+                var orderDetail = ReadDataFromJson2(result);
+                DataTable data1 = orderDetail.Tables["data"];
+                DataTable links = orderDetail.Tables["links"];
+                DataTable meta = orderDetail.Tables["meta"];
+                SaveReturnsDetails(data1, meta, links);
+                return Content(jsonString);
+                //return Content(result);
+            }
+            return Content("No data found for the provided BILL_PKEY.");
         }
+
         public DataSet ReadDataFromJson2(string jsonString, XmlReadMode mode = XmlReadMode.Auto)
         {
             var originaljson = jsonString;
@@ -508,8 +519,6 @@ namespace Yesbank.Controllers
 
             return combinedTable;
         }
-
-
         private void InsertDataIntoPayment(DataTable results, SqlConnection conn)
         {
             foreach (DataRow row in results.Rows)
@@ -542,6 +551,38 @@ namespace Yesbank.Controllers
                 }
             }
         }
+
+        public DataTable GetData(string query)
+        {
+            DataTable dataTable = new DataTable();
+
+
+
+            string connectionString = "Data Source = DESKTOP-B3QR5MS; Initial Catalog = A1FNCE2425; Persist Security Info = True; User ID = sa; Password = sa; TrustServerCertificate = True; ";
+
+            using (SqlConnection connection = new SqlConnection(connectionString))
+            {
+                try
+                {
+                    connection.Open();
+
+                    using (SqlCommand command = new SqlCommand(query, connection))
+                    {
+                        using (SqlDataAdapter adapter = new SqlDataAdapter(command))
+                        {
+                            adapter.Fill(dataTable);
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine("An error occurred: " + ex.Message);
+                }
+            }
+
+            return dataTable;
+        }
+
         public class StatementRequest
         {
             public string CustomerId { get; set; }
@@ -551,12 +592,10 @@ namespace Yesbank.Controllers
             public string StartDate { get; set; }
             public string EndDate { get; set; }
         }
-
         public class ConsumerContext
         {
             public string RequesterID { get; set; }
         }
-
         public class ServiceContext
         {
             public string ServiceName { get; set; }
@@ -564,13 +603,11 @@ namespace Yesbank.Controllers
             public string ReqRefTimeStamp { get; set; }
             public string ServiceVersionNo { get; set; }
         }
-
         public class ReqHdr
         {
             public ConsumerContext ConsumerContext { get; set; }
             public ServiceContext ServiceContext { get; set; }
         }
-
         public class ReqBody
         {
             public string CustomerId { get; set; }
@@ -600,11 +637,26 @@ namespace Yesbank.Controllers
             public string RemitterAccount { get; set; }
             public string AddressLine { get; set; }
         }
-
         public class AcctStatementInquiryReq
         {
             public ReqHdr ReqHdr { get; set; }
             public ReqBody ReqBody { get; set; }
+        }
+        /////////////
+        ///
+        public class ContactInformation1
+        {
+            public string MobileNumber { get; set; }
+        }
+        public class ContactInformation2
+        {
+        }
+        public class CreditorAccount
+        {
+            public string SchemeName { get; set; }
+            public string Identification { get; set; }
+            public string Name { get; set; }
+            public Unstructured3 Unstructured { get; set; }
         }
         public class Data
         {
@@ -615,14 +667,26 @@ namespace Yesbank.Controllers
             public string SecondaryIdentification { get; set; }
             public List<DomesticPayment> DomesticPayments { get; set; }
         }
-
+        public class DebtorAccount
+        {
+            public string Identification { get; set; }
+            public string Name { get; set; }
+            public string SecondaryIdentification { get; set; }
+            public Unstructured1 Unstructured { get; set; }
+        }
+        public class DeliveryAddress
+        {
+            public List<string> AddressLine { get; set; }
+        }
         public class DomesticPayment
         {
             public string ConsentId { get; set; }
             public Initiation Initiation { get; set; }
             public Risk Risk { get; set; }
         }
-
+        public class Identities
+        {
+        }
         public class Initiation
         {
             public string InstructionIdentification { get; set; }
@@ -632,56 +696,43 @@ namespace Yesbank.Controllers
             public CreditorAccount CreditorAccount { get; set; }
             public RemittanceInformation RemittanceInformation { get; set; }
         }
-
         public class InstructedAmount
         {
             public string Amount { get; set; }
             public string Currency { get; set; }
         }
-
-        public class DebtorAccount
-        {
-            public string Identification { get; set; }
-            public string Name { get; set; }
-            public string SecondaryIdentification { get; set; }
-            public Unstructured Unstructured { get; set; }
-        }
-
-        public class CreditorAccount
-        {
-            public string SchemeName { get; set; }
-            public string Identification { get; set; }
-            public string Name { get; set; }
-            public Unstructured Unstructured { get; set; }
-        }
-
-        public class Unstructured
-        {
-            public ContactInformation ContactInformation { get; set; }
-            public Dictionary<string, object> Identities { get; set; }
-        }
-
-        public class ContactInformation
-        {
-            public string MobileNumber { get; set; }
-        }
-
         public class RemittanceInformation
         {
-            public Unstructured Unstructured { get; set; }
+            public Unstructured2 Unstructured { get; set; }
         }
-
         public class Risk
         {
             public string PaymentContextCode { get; set; }
             public DeliveryAddress DeliveryAddress { get; set; }
         }
-
-        public class DeliveryAddress
+        public class Unstructured1
         {
-            public List<string> AddressLine { get; set; }
+            public ContactInformation1 ContactInformation { get; set; }
+            public Identities Identities { get; set; }
+
         }
+        public class Unstructured2
+        {
+            public string CreditorReferenceInformation { get; set; }
+            public string RemitterAccount { get; set; }
+
+
+        }
+        public class Unstructured3
+        {
+            public ContactInformation2 ContactInformation { get; set; }
+            public Identities Identities { get; set; }
+
+
+        }
+
 
     }
 }
 
+//////////
